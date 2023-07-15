@@ -5,7 +5,7 @@ We will embark on a step-by-step journey, covering crucial stages such as standa
 
 Our specific dataset focuses on Peripheral Blood Mononuclear Cells (PBMC), often described as the fearless immune cell army that resides within our bloodstream. These remarkable cells diligently safeguard our bodies, acting as defenders against potential invaders such as viruses and bacteria.
 
-To make the learning experience more enjoyable and relatable, we have infused some fun analogies inspired by the Lord of the Rings (LOTR) universe.
+To make the learning experience more enjoyable and relatable, we have infused some fun analogies inspired by the LOTR universe.
 
 So, let's get started and unravel the mysteries of Seurat-guided clustering for scRNA-seq data!
 
