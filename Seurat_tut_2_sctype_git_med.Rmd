@@ -1,0 +1,223 @@
+---
+title: "A Journey through Single-Cell Transcriptomics: Guiding Principles for Annotating Cellular Realms (using ScType)"
+output: html_notebook
+---
+
+Single-cell transcriptomics is a powerful technique that allows us to study thousands of cells at once and discover new types of cells, understand their different states, and observe how they change over time. Scientists have developed methods and steps to create detailed maps of these individual cells in tissues. This tutorial is designed to help us understand and make sense of the data from single-cell transcriptomics experiments. We will learn how to identify different types of cells, recognize their states, and uncover important patterns that are relevant to biology. Ultimately, our goal is to create a map that annotates and describes the characteristics of these cells, providing valuable insights into their functions and behaviors.
+
+(Write this under references:)
+We recommend the following reference article for an overview of guidelines for annotating single-cell transcriptomic maps: Clarke, Zoe A., et al. "Tutorial: guidelines for annotating single-cell transcriptomic maps using automated and manual methods." Nature protocols 16.6 (2021): 2749-2764.
+
+They recommend a 3 step workflow: 
+**Automatic Cell Annotation**
+Step 1 of the annotation process in single-cell transcriptomics involves automatic cell annotation. This method efficiently labels cells or clusters using computer algorithms and existing biological knowledge. 
+  There are two main approaches: marker-based automatic annotation and reference-based automatic annotation. Marker-based annotation uses known marker genes specific to each cell type, while reference-based annotation transfers labels from a reference dataset to unlabeled cells with similar gene expression profiles. 
+    Automatic annotation can be applied to individual cells or clusters, with cluster annotation being faster but potentially less accurate. Challenges include incomplete labeling for cell types with poorly characterized signatures. 
+    Marker-based annotation tools include SCINA and AUCell, while GSVA is used for cluster annotation. Reference-based annotation relies on high-quality reference data, and the performance of automatic annotation tools can vary. Conflicting annotations can be resolved through various approaches, including confidence scores and majority rule. Manual annotation may be necessary for unresolved cases or novel cell identities.
+
+**Expert Manual Cell Annotation**
+Step 2 of the annotation process involves expert manual cell annotation. Manual annotation becomes necessary when automated methods result in lower confidence, conflicting labels, or absent cell annotations. In this step, cells are examined manually to determine their function using various resources and marker-based annotation principles. Visualization tools like gene expression overlays and heat maps assist in identifying marker genes for known cell types. Additional markers can be found through literature research and mining of existing single-cell transcriptomic data. Manual annotation operates at the cluster level, but rare cells can be individually examined. Pathway enrichment analysis and differential expression analysis aid in determining cluster-specific pathways and identifying novel cell types. Manual annotation is labor-intensive and subjective but is considered the gold standard method. Cell states and gradients are also addressed in this step, requiring careful examination of stable cell types versus cell states and the annotation of intermediate stages within gradients. Overall, standard nomenclature and integration with Cell Ontology are recommended for consistent annotation across studies.
+
+**Annotation Verification**
+Step 3 of the annotation process involves the verification of cell annotations using independent methods. While automated tools and manual annotation provide confident labels, it is crucial to confirm annotations through statistical methods, expert consultation, and experimental validation. Independent methods such as T-cell receptor (TCR) and B-cell receptor (BCR) clonotyping can refine annotations for tissue-resident immune cells by examining their transcriptional signatures. Functional assays, imaging experiments, and single-cell qPCR can also increase annotation confidence. Complementary single-cell genomic methods, including cellular indexing, single-cell ATAC-seq, and spatial transcriptomics, provide additional insights into immunophenotyping, chromatin state, and spatial transcript patterns. In the context of tumor biology, genetic alterations like single-nucleotide variants and copy-number variants (CNVs) can be detected in single-cell data using specialized tools. CNV inference methods analyze gene expression values across genomic regions to identify amplifications or deletions. Verification experiments and genetic analysis are essential to validate novel cell types and distinguish cancer cells from normal cells.
+
+
+```{r}
+#BiocManager::install("GEOquery")
+```
+
+We are going to work with single-cell RNA sequencing data from Intrahepatic cholangiocarcinoma cell samples. 
+You can find more details here: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi
+
+```{r}
+library(GEOquery)
+gse_id <- "GSE138709" #This line fetches the GEO dataset specified by the gse_id using the getGEO() function.
+geo_object <- getGEO(gse_id)
+```
+
+```{r}
+geo_object
+```
+
+```{r}
+geo_object$`GSE138709-GPL20795_series_matrix.txt.gz`@experimentData
+```
+
+```{r}
+metadata <- pData(geo_object[[1]]) #This line extracts the sample metadata from the geo_object using the pData() function.
+metadata
+
+```
+
+```{r}
+# Download the supplementary files for this GSE ID
+getGEOSuppFiles(gse_id, makeDirectory = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+```
+
+```{r}
+data <- read.csv("GSE138709/GSM4116579_ICC_18_Adjacent_UMI.csv.gz")
+```
+
+
+```{r}
+row.names(data) <- data[,1]
+head(data)
+```
+```{r}
+dim(data)
+```
+
+```{r}
+data <- data[,2:10318]
+head(data)
+```
+
+```{r}
+seurat_obj <- CreateSeuratObject(counts = data, project = "ScType_workflow", min.cells = 3, min.features = 200)
+rm(data)
+```
+
+
+```{r}
+str(seurat_obj)
+```
+
+```{r}
+# Normalize data
+seurat_obj[["percent.mt"]] <- PercentageFeatureSet(seurat_obj, pattern = "^MT-")
+seurat_obj <- NormalizeData(seurat_obj, normalization.method = "LogNormalize", scale.factor = 10000)
+seurat_obj <- FindVariableFeatures(seurat_obj, selection.method = "vst", nfeatures = 2000)
+
+# Scale and run PCA
+seurat_obj <- ScaleData(seurat_obj, features = rownames(seurat_obj))
+seurat_obj <- RunPCA(seurat_obj, features = VariableFeatures(object = seurat_obj))
+
+# Check number of PC components (we selected 10 PCs for downstream analysis, based on Elbow plot)
+ElbowPlot(seurat_obj)
+
+# Cluster and visualize
+seurat_obj <- FindNeighbors(seurat_obj, dims = 1:10)
+seurat_obj <- FindClusters(seurat_obj, resolution = 0.8)
+seurat_obj <- RunUMAP(seurat_obj, dims = 1:10)
+DimPlot(seurat_obj, reduction = "umap")
+
+```
+
+Now that we have grouped similar cells into clusters, let's move onto our mission of uncovering the secrets of cell types hidden within the dataset using ScType, a powerful tool that will aid us on our quest.
+
+try to label or identify the cell types in each cluster using a tool called ScType. ScType is a specialized tool that automatically and quickly identifies cell types based on specific combinations of genes from the single-cell gene expression data.
+
+
+They provide cell-type-specific gene sets from their in-built database (DB).
+
+```{r}
+lapply(c("dplyr","Seurat","HGNChelper","openxlsx"), library, character.only = T)
+
+#For that, we first load 2 additional ScType functions: 
+# load gene set preparation function
+source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R")
+# load cell type annotation function
+source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/sctype_score_.R")
+
+```
+
+ScType comes with its own database of cell markers, which are genes known to be specific to particular cell types. However, it's worth noting that we can also use our own data by preparing an input file in a specific format similar to their database. 
+
+```{r}
+db_ = "https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_full.xlsx";
+#db_ = "ScTypeDB_short.xlsx"
+tissue = "Immune system"
+# prepare gene sets
+gs_list = gene_sets_prepare(db_, tissue)
+```
+
+Once we have the input data ready, we can use the ScType function called "sctype_score" to assign cell types to each cluster. This function takes both positive and negative markers (genes that provide evidence against a cell being of a specific cell type) as input. If there are no negative markers, we can simply set the negative markers argument to NULL.
+
+```{r}
+# get cell-type by cell matrix
+es.max = sctype_score(scRNAseqData =  seurat_obj[["RNA"]]@scale.data, scaled = TRUE, 
+                      gs = gs_list$gs_positive, gs2 = gs_list$gs_negative) 
+
+# NOTE: scRNAseqData parameter should correspond to your input scRNA-seq matrix. 
+# In case Seurat is used, it is either pbmc[["RNA"]]@scale.data (default), pbmc[["SCT"]]@scale.data, in case sctransform is used for normalization,
+# or pbmc[["integrated"]]@scale.data, in case a joint analysis of multiple single-cell datasets is performed.
+
+# merge by cluster
+cL_resutls = do.call("rbind", lapply(unique(seurat_obj@meta.data$seurat_clusters), function(cl){
+    es.max.cl = sort(rowSums(es.max[ ,rownames(seurat_obj@meta.data[seurat_obj@meta.data$seurat_clusters==cl, ])]), decreasing = !0)
+    head(data.frame(cluster = cl, type = names(es.max.cl), scores = es.max.cl, ncells = sum(seurat_obj@meta.data$seurat_clusters==cl)), 10)
+}))
+sctype_scores = cL_resutls %>% group_by(cluster) %>% top_n(n = 1, wt = scores)
+
+# set low-confident (low ScType score) clusters to "unknown"
+sctype_scores$type[as.numeric(as.character(sctype_scores$scores)) < sctype_scores$ncells/4] = "Unknown"
+print(sctype_scores[,1:3])
+
+```
+
+To visualize the results, we can overlay the identified cell types on a UMAP plot, which is a way to visualize high-dimensional data in two dimensions. The UMAP plot will show each cluster with different colors representing the assigned cell types.
+
+```{r}
+seurat_obj@meta.data$customclassif = ""
+for(j in unique(sctype_scores$cluster)){
+  cl_type = sctype_scores[sctype_scores$cluster==j,]; 
+  seurat_obj@meta.data$customclassif[seurat_obj@meta.data$seurat_clusters == j] = as.character(cl_type$type[1])
+}
+
+DimPlot(seurat_obj, reduction = "umap", label = TRUE, repel = TRUE, group.by = 'customclassif')        
+
+```
+
+Additionally, ScType provides a way to visualize a bubble plot that shows all the cell types considered for cluster annotation. The outer (grey) bubbles correspond to each cluster, with bigger bubbles representing clusters with more cells. The inner bubbles correspond to the different cell types considered for each cluster, and the biggest bubble inside each cluster corresponds to the final assigned cell type.
+
+```{r}
+
+# load libraries
+lapply(c("ggraph","igraph","tidyverse", "data.tree"), library, character.only = T)
+
+# prepare edges
+cL_resutls=cL_resutls[order(cL_resutls$cluster),]; edges = cL_resutls; edges$type = paste0(edges$type,"_",edges$cluster); edges$cluster = paste0("cluster ", edges$cluster); edges = edges[,c("cluster", "type")]; colnames(edges) = c("from", "to"); rownames(edges) <- NULL
+
+# prepare nodes
+nodes_lvl1 = sctype_scores[,c("cluster", "ncells")]; nodes_lvl1$cluster = paste0("cluster ", nodes_lvl1$cluster); nodes_lvl1$Colour = "#f1f1ef"; nodes_lvl1$ord = 1; nodes_lvl1$realname = nodes_lvl1$cluster; nodes_lvl1 = as.data.frame(nodes_lvl1); nodes_lvl2 = c(); 
+ccolss= c("#5f75ae","#92bbb8","#64a841","#e5486e","#de8e06","#eccf5a","#b5aa0f","#e4b680","#7ba39d","#b15928","#ffff99", "#6a3d9a","#cab2d6","#ff7f00","#fdbf6f","#e31a1c","#fb9a99","#33a02c","#b2df8a","#1f78b4","#a6cee3")
+for (i in 1:length(unique(cL_resutls$cluster))){
+  dt_tmp = cL_resutls[cL_resutls$cluster == unique(cL_resutls$cluster)[i], ]; nodes_lvl2 = rbind(nodes_lvl2, data.frame(cluster = paste0(dt_tmp$type,"_",dt_tmp$cluster), ncells = dt_tmp$scores, Colour = ccolss[i], ord = 2, realname = dt_tmp$type))
+}
+nodes = rbind(nodes_lvl1, nodes_lvl2); nodes$ncells[nodes$ncells<1] = 1;
+files_db = openxlsx::read.xlsx(db_)[,c("cellName","shortName")]; files_db = unique(files_db); nodes = merge(nodes, files_db, all.x = T, all.y = F, by.x = "realname", by.y = "cellName", sort = F)
+nodes$shortName[is.na(nodes$shortName)] = nodes$realname[is.na(nodes$shortName)]; nodes = nodes[,c("cluster", "ncells", "Colour", "ord", "shortName", "realname")]
+
+mygraph <- graph_from_data_frame(edges, vertices=nodes)
+
+# Make the graph
+gggr<- ggraph(mygraph, layout = 'circlepack', weight=I(ncells)) + 
+  geom_node_circle(aes(filter=ord==1,fill=I("#F5F5F5"), colour=I("#D3D3D3")), alpha=0.9) + geom_node_circle(aes(filter=ord==2,fill=I(Colour), colour=I("#D3D3D3")), alpha=0.9) +
+  theme_void() + geom_node_text(aes(filter=ord==2, label=shortName, colour=I("#ffffff"), fill="white", repel = !1, parse = T, size = I(log(ncells,25)*1.5)))+ geom_node_label(aes(filter=ord==1,  label=shortName, colour=I("#000000"), size = I(3), fill="white", parse = T), repel = !0, segment.linetype="dotted")
+  
+scater::multiplot(DimPlot(seurat_obj, reduction = "umap", label = TRUE, repel = TRUE, cols = ccolss), gggr, cols = 2)
+
+
+```
+
+
+**Automatically detect a tissue type of the dataset**
+
+If the tissue type of the input dataset is unknown, ScType can also automatically guess the most probable tissue type based on the highest summary score obtained during the cell type identification process. This can help researchers better understand the biological context of their single-cell gene expression data.
+
+```{r}
+
+# load auto-detection function
+source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/auto_detect_tissue_type.R")
+db_ = "https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_full.xlsx";
+
+# guess a tissue type
+tissue_guess = auto_detect_tissue_type(path_to_db_file = db_, seuratObject = seurat_obj, scaled = TRUE, assay = "RNA")  # if saled = TRUE, make sure the data is scaled, as seuratObject[[assay]]@scale.data is used. If you just created a Seurat object, without any scaling and normalization, set scaled = FALSE, seuratObject[[assay]]@counts will be used
+
+```
