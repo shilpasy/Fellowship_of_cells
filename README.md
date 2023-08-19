@@ -1,3 +1,4 @@
+Seurat_tut_1_git_med.Rmd 
 # Fellowship_of_cells
 In this tutorial, we will explore the fundamental setup and perform clustering analysis for single-cell RNA sequencing using Seurat. This comprehensive tutorial aims to assist beginners in understanding the topic more effectively, employing fun analogies where possible.
 
@@ -11,3 +12,7 @@ So, let's get started and unravel the mysteries of Seurat-guided clustering for 
 
 An html version of this R-notebook can be found here:
 https://rpubs.com/shilpayadahalli/1063825
+
+## Seurat_tut_1_git_med.Rmd
+
+In this tutorial, we will use a different dataset, and carry out the clustering steps as above followed by automatic annotation by ScType.
